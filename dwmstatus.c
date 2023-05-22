@@ -17,9 +17,12 @@
 
 #include <X11/Xlib.h>
 
-char *tzargentina = "America/Buenos_Aires";
+char *tz_india = "Asia/Kolkata";
 char *tzutc = "UTC";
-char *tzberlin = "Europe/Berlin";
+char *separator = "    ";
+char *battery_base = "/sys/class/power_supply/BAT0";
+char *battery_icons[] =          { "󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹" };
+char *battery_charging_icons[] = { "󰢟", "󰢜", "󰂆", "󰂇", "󰂈", "󰢝", "󰂉", "󰢞", "󰂊", "󰂋", "󰂅" };
 
 static Display *dpy;
 
@@ -82,17 +85,6 @@ setstatus(char *str)
 }
 
 char *
-loadavg(void)
-{
-	double avgs[3];
-
-	if (getloadavg(avgs, 3) < 0)
-		return smprintf("");
-
-	return smprintf("%.2f %.2f %.2f", avgs[0], avgs[1], avgs[2]);
-}
-
-char *
 readfile(char *base, char *file)
 {
 	char *path, line[513];
@@ -116,15 +108,15 @@ readfile(char *base, char *file)
 }
 
 char *
-getbattery(char *base)
+getbattery()
 {
-	char *co, status;
+	char *co, *status;
 	int descap, remcap;
 
 	descap = -1;
 	remcap = -1;
 
-	co = readfile(base, "present");
+	co = readfile(battery_base, "present");
 	if (co == NULL)
 		return smprintf("");
 	if (co[0] != '1') {
@@ -133,48 +125,43 @@ getbattery(char *base)
 	}
 	free(co);
 
-	co = readfile(base, "charge_full_design");
+	co = readfile(battery_base, "charge_full_design");
 	if (co == NULL) {
-		co = readfile(base, "energy_full_design");
+		co = readfile(battery_base, "energy_full_design");
 		if (co == NULL)
 			return smprintf("");
 	}
 	sscanf(co, "%d", &descap);
 	free(co);
 
-	co = readfile(base, "charge_now");
+	co = readfile(battery_base, "charge_now");
 	if (co == NULL) {
-		co = readfile(base, "energy_now");
+		co = readfile(battery_base, "energy_now");
 		if (co == NULL)
 			return smprintf("");
 	}
 	sscanf(co, "%d", &remcap);
 	free(co);
 
-	co = readfile(base, "status");
+	char **battery_icon_list = battery_icons;
+
+	co = readfile(battery_base, "status");
 	if (!strncmp(co, "Discharging", 11)) {
-		status = '-';
+		status = "";
 	} else if(!strncmp(co, "Charging", 8)) {
-		status = '+';
+		status = "";
+		battery_icon_list = battery_charging_icons;
 	} else {
-		status = '?';
+		status = "";
 	}
 
 	if (remcap < 0 || descap < 0)
 		return smprintf("invalid");
 
-	return smprintf("%.0f%%%c", ((float)remcap / (float)descap) * 100, status);
-}
+	float battery_percentage = ((float) remcap / (float) descap) * 10;
+	char *battery_icon = battery_icon_list[(unsigned int) battery_percentage];
 
-char *
-gettemperature(char *base, char *sensor)
-{
-	char *co;
-
-	co = readfile(base, sensor);
-	if (co == NULL)
-		return smprintf("");
-	return smprintf("%02.0f°C", atof(co) / 1000);
+	return smprintf("%s%s %.0f%%", battery_icon, status, battery_percentage * 10);
 }
 
 char *
@@ -202,51 +189,39 @@ int
 main(void)
 {
 	char *status;
-	char *avgs;
 	char *bat;
-	char *tmar;
-	char *tmutc;
-	char *tmbln;
-	char *t0;
-	char *t1;
+	char *tm_india;
+	char *da_india;
 	char *kbmap;
-	char *surfs;
 
 	if (!(dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "dwmstatus: cannot open display.\n");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	for (;;sleep(30)) {
-		avgs = loadavg();
-		bat = getbattery("/sys/class/power_supply/BAT0");
-		tmar = mktimes("%H:%M", tzargentina);
-		tmutc = mktimes("%H:%M", tzutc);
-		tmbln = mktimes("KW %W %a %d %b %H:%M %Z %Y", tzberlin);
+		bat = getbattery();
+		tm_india = mktimes("%H:%M", tz_india);
+		da_india = mktimes("%a %d %b %Y", tz_india);
 		kbmap = execscript("setxkbmap -query | grep layout | cut -d':' -f 2- | tr -d ' '");
-		surfs = execscript("surf-status");
-		t0 = gettemperature("/sys/devices/virtual/thermal/thermal_zone0", "temp");
-		t1 = gettemperature("/sys/devices/virtual/thermal/thermal_zone1", "temp");
 
-		status = smprintf("S:%s K:%s T:%s|%s L:%s B:%s A:%s U:%s %s",
-				surfs, kbmap, t0, t1, avgs, bat, tmar, tmutc,
-				tmbln);
+		status = smprintf(
+			" %s%s%s%s %s%s %s",
+			kbmap, separator,
+			bat, separator,
+			tm_india, separator,
+			da_india
+		);
 		setstatus(status);
 
-		free(surfs);
-		free(kbmap);
-		free(t0);
-		free(t1);
-		free(avgs);
 		free(bat);
-		free(tmar);
-		free(tmutc);
-		free(tmbln);
+		free(tm_india);
+		free(da_india);
 		free(status);
 	}
 
 	XCloseDisplay(dpy);
 
-	return 0;
+	return EXIT_SUCCESS;
 }
 
